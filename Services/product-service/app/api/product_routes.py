@@ -1,85 +1,70 @@
 import uuid
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, ConfigDict
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+from app.db.database import get_db
+from app.services.product_service import (create_product_service, get_product_service, get_products_service, update_product_service)
 
-from fastapi import APIRouter
-#to create a router which can be joined in main.py
-from pydantic import BaseModel
-#pydantic for schema
-import datetime # to generate datetime
-from uuid import uuid4  # to generate random id 
 
 router = APIRouter(prefix="/product", tags=['Products']) # will add /products after every route and tags are mainly for swagger doc
 
-product_bucket = []
-
 #schema for craeting product
 class ProductCreate(BaseModel):
-    name : str
+    name: str
     description : str
     sku : str
     price : float
-    category : str
-    status : str
+    category: str
+    status: str
 
+class ProductUpdate(BaseModel):
+    name: Optional[str]= None
+    description: Optional[str]=None
+    sku: Optional[str]=None
+    price: Optional[float]=None
+    category:Optional[str]=None
+    status:Optional[str]=None
+
+class ProductResponse(ProductCreate):
+    model_config = ConfigDict(from_attributes=True)
+    id: uuid.UUID
 
 #create a product
-@router.post("/")
-def create_product(product: ProductCreate):
+@router.post("/", response_model=ProductResponse, status_code=201)
+def create_product(product: ProductCreate, db:Session=Depends(get_db)):
     
-    now = datetime.datetime.now(datetime.timezone.utc)
-    new_product = {
-        "id" : str(uuid.uuid4()),
-        **product.model_dump(),
-        "created_at" : now,
-        "updated_at" : now
-    }
-    product_bucket.append(new_product) # storing our created products into product_bucket
-    return{
-        "message": "The post has been successfully created",
-        "product" : new_product
-           }
+    try:
+        return create_product_service(db, product)
+    except IntegrityError as e:
+        db.rollback()
+        print(e.orig)
+        raise HTTPException(status_code=409, detail=" a product with this sku already exist")
+    
+
+    
+
 
 
 
 #get all the products
-@router.get("/getProducts")
-def get_products():
-    return {"message" : "Get all products",
-            "products" : product_bucket
-            }
+@router.get("/getProducts", response_model=list[ProductResponse])
+def get_products(db:Session=Depends(get_db)):
+    return get_products_service(db)
 
 #return the product
-@router.get("/{id}")
-def get_product(id: str):
-    for product in product_bucket : 
-        if product["id"] == id:
-            return product
-    return {"message" : "product not found !"}
+@router.get("/{id}", response_model=ProductResponse)
+def get_product(id: uuid.UUID, db:Session=Depends(get_db)):
+    product = get_product_service(db, id)
+    if not product:
+        raise HTTPException(status_code=404, detail="product not found")
+    return product
 
-@router.patch("/{update}")
-def update_prod(id : str, product_update: ProductCreate):
+@router.patch("/{id}", response_model=ProductResponse)
+def update_product(id: uuid.UUID, product_update:ProductUpdate, db: Session = Depends(get_db)):
+    product = update_product_service(db, id, product_update)
+    if not product:
+        raise HTTPException(status_code=404, detail="product not found")
+    return product
 
-    for prod in product_bucket:
-        if prod["id"] == id:
-            updates = product_update.model_dump(exclude_unset=True)
-            prod.update(updates)
-            prod["updated_at"] = datetime.datetime.now(datetime.timezone.utc)
-
-            return {
-                "message" : "Product has been successfully updated",
-                "product" : prod
-            }
-    return {"message" : "Product not Found !"}
-
-
-@router.delete("/{id}")
-def delete_post(id: str):
-    for prod in product_bucket:
-        if prod["id"] == id:
-            product_bucket.remove(prod)
-            return {"message" : "product successfully deleted",
-                    "product" : prod
-                    }
-    return {"message" : "Product doesnot exist"}
-        
-            
-        
