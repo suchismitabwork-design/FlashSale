@@ -10,7 +10,7 @@ from app.services.product_service import (create_product_service, get_product_se
 
 router = APIRouter(prefix="/product", tags=['Products']) # will add /products after every route and tags are mainly for swagger doc
 
-#schema for craeting product
+#schema for creating product
 class ProductCreate(BaseModel):
     name: str
     description : str
